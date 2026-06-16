@@ -420,6 +420,113 @@
     flex-shrink: 0;
   }
   .entry-delete:hover { background: var(--owe); color: white; }
+
+  .btn-paid {
+    background: var(--owed);
+    color: white;
+    border-color: var(--border);
+    box-shadow: 3px 3px 0 var(--border);
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .showdown-line.is-paid {
+    opacity: 0.45;
+    text-decoration: line-through;
+    box-shadow: none;
+  }
+
+  .paid-history {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .paid-entry {
+    background: #edfaf3;
+    border: 2px dashed #2bb673;
+    border-radius: 14px;
+    padding: 0.65rem 1rem;
+    font-size: 0.9rem;
+    color: var(--owed);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .paid-entry .paid-date {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  /* Big celebration overlay */
+  .celebrate-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .celebrate-box {
+    background: var(--panel);
+    border: 4px solid var(--border);
+    border-radius: 24px;
+    box-shadow: 8px 8px 0 var(--border);
+    padding: 2.5rem 2rem;
+    text-align: center;
+    max-width: 340px;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  @keyframes popIn {
+    from { transform: scale(0.5); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .celebrate-emoji {
+    font-size: 4rem;
+    display: block;
+    margin-bottom: 0.5rem;
+    animation: spin 0.6s ease;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(-20deg) scale(0.5); }
+    to { transform: rotate(0deg) scale(1); }
+  }
+
+  .celebrate-title {
+    font-family: 'Baloo 2', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 800;
+    margin: 0 0 0.4rem;
+  }
+
+  .celebrate-sub {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .celebrate-close {
+    background: var(--accent);
+    width: 100%;
+  }
 </style>
 </head>
 <body>
@@ -471,6 +578,9 @@
 
   <div class="section-title">⚔️ The Showdown (simplified)</div>
   <div id="showdown"></div>
+
+  <div class="section-title">🏅 Hall of Honour</div>
+  <div id="paid-history" class="paid-history"></div>
 </div>
 
 <script>
@@ -496,7 +606,7 @@
   // ---- Data (now lives in Firestore, not the browser) ----
   let people = [];
   let expenses = [];
-
+  let paidSettlements = []; // { from, to, amount, paidAt }
   const AVATAR_POOL = ['🦄','🐸','🦖','🐙','🦊','🐻','🐯','🦁','🐰','🐼','🐨','🦝','🐵','🦒','🐢','🐳','🦔','🐔'];
 
   function uid() {
@@ -610,18 +720,77 @@
   // ---- Fun copy ----
   function statusFor(balance) {
     if (Math.abs(balance) < 1) {
-      return { text: 'Squeaky clean ✨', cls: 'even' };
+      const lines = [
+        'Cleaner than your browsing history 🕵️',
+        'Not a paisa owed. Suspicious. 🤨',
+        'Free as a bird. Broke as one too. 🐦',
+        'Zero debts. Zero friends? Nah, you\'re good. ✌️',
+        'Settled up. Mummy would be proud. 🥹',
+      ];
+      return { text: lines[Math.floor(Math.random() * lines.length)], cls: 'even' };
     }
     if (balance > 0) {
       if (balance < 200) return { text: 'Owed pocket change 🪙', cls: 'owed' };
       if (balance < 1000) return { text: 'Quietly building an empire 👑', cls: 'owed' };
-      return { text: 'Basically a loan shark now 🦈', cls: 'owed' };
+      if (balance < 5000) return { text: 'Basically a loan shark now 🦈', cls: 'owed' };
+      return { text: 'At this point, charge interest 💰', cls: 'owed' };
     } else {
       const abs = -balance;
       if (abs < 200) return { text: 'Owes them a chai ☕', cls: 'owes' };
-      if (abs < 1000) return { text: 'In the red zone 🚨', cls: 'owes' };
-      return { text: 'Time to sell a kidney 🫘', cls: 'owes' };
+      if (abs < 1000) return { text: 'Sweating a little 😅', cls: 'owes' };
+      if (abs < 5000) return { text: 'Time to sell a kidney 🫘', cls: 'owes' };
+      return { text: 'Ghost them and move cities 🏃', cls: 'owes' };
     }
+  }
+
+  // ---- Celebration overlay ----
+  const CELEBRATIONS = [
+    { emoji: '🤑', title: 'Money transferred!', sub: 'Friendship: restored. Bank account: cried a little.' },
+    { emoji: '🫡', title: 'Salute!', sub: 'Debt cleared. You may now look them in the eye again.' },
+    { emoji: '🕊️', title: 'Peace at last.', sub: 'No more awkward "sooo about that money..." texts.' },
+    { emoji: '👑', title: 'Royally settled!', sub: 'The accountants are weeping tears of joy.' },
+    { emoji: '🎯', title: 'Bullseye!', sub: 'Precise. Clean. Suspiciously adult of you.' },
+    { emoji: '🧾', title: 'Receipt stamped!', sub: 'The debt gods are appeased. You may rest.' },
+    { emoji: '🥂', title: 'Cheers to that!', sub: 'Paid up. Buy yourself something nice. (You can\'t afford it.)' },
+  ];
+
+  function showCelebration(fromName, toName, amount) {
+    const c = CELEBRATIONS[Math.floor(Math.random() * CELEBRATIONS.length)];
+    const overlay = document.createElement('div');
+    overlay.className = 'celebrate-overlay';
+    overlay.innerHTML = `
+      <div class="celebrate-box">
+        <span class="celebrate-emoji">${c.emoji}</span>
+        <div class="celebrate-title">${c.title}</div>
+        <div class="celebrate-sub">${c.sub}<br><br><strong>${fromName}</strong> paid <strong>${toName}</strong> ₹${amount.toFixed(2)}</div>
+        <button class="celebrate-close" onclick="this.closest('.celebrate-overlay').remove()">Nice one 🤙</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+    if (typeof confetti === 'function') {
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: ['#ffd23f','#2bb673','#c77dff','#ff6b6b'] });
+    }
+  }
+
+  // ---- Paid history ----
+  function renderPaidHistory() {
+    const el = document.getElementById('paid-history');
+    if (paidSettlements.length === 0) {
+      el.innerHTML = '<p class="empty" style="text-align:center;">Nobody\'s paid up yet. Shocking. 😒</p>';
+      return;
+    }
+    el.innerHTML = [...paidSettlements].reverse().map(s => {
+      const date = new Date(s.paidAt);
+      const dateStr = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return `
+        <div class="paid-entry">
+          ✅ ${escapeHtml(nameFor(s.from))} paid ${escapeHtml(nameFor(s.to))} ₹${s.amount.toFixed(2)}
+          <span class="paid-date">${dateStr}</span>
+        </div>
+      `;
+    }).join('');
   }
 
   // ---- Rendering ----
@@ -633,6 +802,7 @@
     renderEntries();
     renderScoreboard();
     renderShowdown();
+    renderPaidHistory();
   }
 
   function renderPeople() {
@@ -722,14 +892,40 @@
       maybeConfetti();
       return;
     }
-    el.innerHTML = '<div class="showdown">' + settlements.map(s => `
-      <div class="showdown-line">
-        <span>${emojiFor(s.from)} ${escapeHtml(nameFor(s.from))}</span>
-        <span class="showdown-arrow">💸➡️</span>
-        <span>${emojiFor(s.to)} ${escapeHtml(nameFor(s.to))}</span>
-        <span class="showdown-amount">₹${s.amount.toFixed(2)}</span>
-      </div>
-    `).join('') + '</div>';
+    el.innerHTML = '<div class="showdown">' + settlements.map(s => {
+      const canPay = currentUser === s.from;
+      return `
+        <div class="showdown-line" data-from="${s.from}" data-to="${s.to}" data-amount="${s.amount}">
+          <span>${emojiFor(s.from)} ${escapeHtml(nameFor(s.from))}</span>
+          <span class="showdown-arrow">💸➡️</span>
+          <span>${emojiFor(s.to)} ${escapeHtml(nameFor(s.to))}</span>
+          <span class="showdown-amount">₹${s.amount.toFixed(2)}</span>
+          ${canPay ? `<button class="btn-paid" data-pay-from="${s.from}" data-pay-to="${s.to}" data-pay-amount="${s.amount}">Mark Paid ✅</button>` : ''}
+        </div>
+      `;
+    }).join('') + '</div>';
+
+    el.querySelectorAll('[data-pay-from]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const from = btn.getAttribute('data-pay-from');
+        const to = btn.getAttribute('data-pay-to');
+        const amount = parseFloat(btn.getAttribute('data-pay-amount'));
+
+        // Record payment and clear matching expenses
+        paidSettlements.push({ from, to, amount, paidAt: Date.now() });
+
+        // Remove expenses that this payment covers (payer was `from`, split included `to`, or vice versa)
+        // Strategy: remove all expenses where `from` owes `to` until the balance is cleared
+        expenses = expenses.filter(e => {
+          const involvesBoth = (e.paidBy === to && e.splitAmong.includes(from)) ||
+                               (e.paidBy === from && e.splitAmong.includes(to));
+          return !involvesBoth;
+        });
+
+        showCelebration(nameFor(from), nameFor(to), amount);
+        saveToFirestore();
+      });
+    });
   }
 
   let lastConfettiKey = null;
@@ -759,7 +955,7 @@
   }
 
   function saveToFirestore() {
-    tabRef.set({ people, expenses }).catch(err => {
+    tabRef.set({ people, expenses, paidSettlements }).catch(err => {
       setSyncStatus('error', 'Sync failed — check your Firebase setup');
       console.error(err);
     });
@@ -771,11 +967,12 @@
       const data = doc.data();
       people = data.people || [];
       expenses = data.expenses || [];
+      paidSettlements = data.paidSettlements || [];
     } else {
-      // First time ever — create the shared doc
       people = [];
       expenses = [];
-      tabRef.set({ people, expenses });
+      paidSettlements = [];
+      tabRef.set({ people, expenses, paidSettlements });
     }
     setSyncStatus('live', 'Live — synced with your crew');
     render();
