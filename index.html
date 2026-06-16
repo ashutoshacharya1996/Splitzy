@@ -465,6 +465,20 @@
     font-weight: 400;
   }
 
+  .btn-undo {
+    background: #fff3cd;
+    color: var(--ink);
+    border: 2px solid var(--border);
+    box-shadow: 2px 2px 0 var(--border);
+    font-size: 0.8rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 8px;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+    white-space: nowrap;
+  }
+  .btn-undo:hover { background: var(--owe); color: white; }
+
   /* Big celebration overlay */
   .celebrate-overlay {
     position: fixed;
@@ -781,16 +795,39 @@
       el.innerHTML = '<p class="empty" style="text-align:center;">Nobody\'s paid up yet. Shocking. 😒</p>';
       return;
     }
-    el.innerHTML = [...paidSettlements].reverse().map(s => {
+    el.innerHTML = [...paidSettlements].reverse().map((s, reversedIdx) => {
+      const realIdx = paidSettlements.length - 1 - reversedIdx;
       const date = new Date(s.paidAt);
       const dateStr = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      const canUndo = currentUser === s.to;
       return `
         <div class="paid-entry">
-          ✅ ${escapeHtml(nameFor(s.from))} paid ${escapeHtml(nameFor(s.to))} ₹${s.amount.toFixed(2)}
-          <span class="paid-date">${dateStr}</span>
+          ✅ \${escapeHtml(nameFor(s.from))} paid \${escapeHtml(nameFor(s.to))} ₹\${s.amount.toFixed(2)}
+          <span class="paid-date">\${dateStr}</span>
+          \${canUndo ? `<button class="btn-undo" data-undo-idx="\${realIdx}">↩️ Undo</button>` : ''}
         </div>
       `;
     }).join('');
+
+    el.querySelectorAll('[data-undo-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-undo-idx'));
+        const s = paidSettlements[idx];
+        if (!s) return;
+        const confirmed = confirm(\`Undo payment of ₹\${s.amount.toFixed(2)} from \${nameFor(s.from)} to \${nameFor(s.to)}?\n\nOnly do this if it was marked paid by mistake.\`);
+        if (!confirmed) return;
+        // Restore the debt as a new expense so balances go back to what they were
+        expenses.push({
+          id: uid(),
+          title: '↩️ Undone payment: ' + nameFor(s.from) + ' → ' + nameFor(s.to),
+          amount: s.amount,
+          paidBy: s.to,
+          splitAmong: [s.from, s.to],
+        });
+        paidSettlements.splice(idx, 1);
+        saveToFirestore();
+      });
+    });
   }
 
   // ---- Rendering ----
