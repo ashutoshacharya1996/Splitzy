@@ -197,12 +197,22 @@
   function computeBalances() {
     const bal = {};
     people.forEach(p => bal[p.id] = 0);
+
+    // Step 1: tally all expenses
     expenses.forEach(e => {
       if (!e.splitAmong || e.splitAmong.length === 0) return;
       const share = e.amount / e.splitAmong.length;
       bal[e.paidBy] = (bal[e.paidBy] || 0) + e.amount;
       e.splitAmong.forEach(id => { bal[id] = (bal[id] || 0) - share; });
     });
+
+    // Step 2: apply payments as offsets (payer's balance goes up, receiver's goes down)
+    // This correctly zeroes out the debt without touching any expense records
+    paidSettlements.forEach(s => {
+      bal[s.from] = (bal[s.from] || 0) + s.amount; // payer is now less in debt
+      bal[s.to]   = (bal[s.to]   || 0) - s.amount; // receiver got paid, so less owed to them
+    });
+
     return bal;
   }
 
@@ -405,12 +415,9 @@
         const from = btn.getAttribute('data-from');
         const to = btn.getAttribute('data-to');
         const amount = parseFloat(btn.getAttribute('data-amt'));
+        // Just record the payment — expenses stay untouched.
+        // computeBalances() will subtract this payment from the running totals.
         paidSettlements.push({ from, to, amount, paidAt: Date.now() });
-        expenses = expenses.filter(e => {
-          const both = (e.paidBy === to && e.splitAmong.includes(from)) ||
-                       (e.paidBy === from && e.splitAmong.includes(to));
-          return !both;
-        });
         showCelebration(nameFor(from), nameFor(to), amount);
         saveToFirestore();
       });
@@ -437,13 +444,8 @@
         const s = paidSettlements[idx];
         if (!s) return;
         if (!confirm('Undo this payment of ₹' + s.amount.toFixed(2) + '?\n\nOnly do this if it was marked paid by mistake.')) return;
-        expenses.push({
-          id: uid(),
-          title: '↩️ Undone: ' + nameFor(s.from) + ' owed ' + nameFor(s.to),
-          amount: s.amount,
-          paidBy: s.to,
-          splitAmong: [s.from, s.to],
-        });
+        // Just remove the payment record — the original expenses were never touched,
+        // so the debt automatically reappears in computeBalances().
         paidSettlements.splice(idx, 1);
         saveToFirestore();
       });
